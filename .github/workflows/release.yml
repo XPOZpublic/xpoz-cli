@@ -1,0 +1,115 @@
+name: build-release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create (e.g. v0.1.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark release as prerelease'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.asset_name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: xpoz-cli-linux-amd64
+          - os: ubuntu-24.04-arm
+            asset_name: xpoz-cli-linux-arm64
+          - os: macos-13
+            asset_name: xpoz-cli-macos-amd64
+          - os: macos-14
+            asset_name: xpoz-cli-macos-arm64
+          - os: windows-latest
+            asset_name: xpoz-cli-windows-amd64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller xpoz
+
+      - name: Build with PyInstaller
+        run: pyinstaller --onefile --name xpoz-cli --clean xpoz_cli.py
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          src="dist/xpoz-cli"
+          [[ "${{ runner.os }}" == "Windows" ]] && src="dist/xpoz-cli.exe"
+          mv "$src" "dist/${{ matrix.asset_name }}"
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          chmod +x "dist/${{ matrix.asset_name }}" || true
+          "./dist/${{ matrix.asset_name }}" --help > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh dist
+
+      - name: Resolve tag and flags
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+              echo "prerelease_flag=--prerelease" >> "$GITHUB_OUTPUT"
+            else
+              echo "prerelease_flag=" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "prerelease_flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --generate-notes \
+            ${{ steps.meta.outputs.prerelease_flag }} \
+            dist/xpoz-cli-*
