@@ -46,12 +46,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # manylinux images already ship multiple CPython builds at
-      # /opt/python/cpXY-cpXY/bin; just put the one we want on PATH.
-      - name: Use manylinux Python 3.12
+      # manylinux's /opt/python/cpXY is built WITHOUT --enable-shared
+      # (it ships a static CPython for wheel-building), so PyInstaller
+      # can't find libpython.so. Use uv to install a
+      # python-build-standalone distribution which DOES ship
+      # libpython.so, and activate a venv from it.
+      - name: Install uv + shared CPython (manylinux)
         if: ${{ matrix.container }}
         shell: bash
-        run: echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
+        run: |
+          set -euo pipefail
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv python install 3.12
+          uv venv --python 3.12 "$HOME/build-venv"
+          echo "$HOME/build-venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$HOME/build-venv" >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@v5
         if: ${{ !matrix.container }}
