@@ -44,6 +44,7 @@ import re
 import sys
 import types
 import typing
+import webbrowser
 from enum import Enum
 
 try:
@@ -87,6 +88,122 @@ def _is_list(ann):
 def _first_doc_line(obj) -> str:
     doc = inspect.getdoc(obj) or ""
     return doc.strip().split("\n", 1)[0]
+
+
+# ---------- auth config (plaintext JSON, gh/aws-cli style) ----------
+
+def _config_path() -> str:
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "xpoz", "config.json")
+
+
+def _load_config() -> dict:
+    try:
+        with open(_config_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_config(cfg: dict) -> str:
+    path = _config_path()
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    try:
+        os.chmod(parent, 0o700)
+    except (OSError, NotImplementedError):
+        pass
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, path)
+    try:
+        os.chmod(path, 0o600)
+    except (OSError, NotImplementedError):
+        pass
+    return path
+
+
+def _delete_config() -> bool:
+    try:
+        os.remove(_config_path())
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return "(none)"
+    return "…" + key[-4:] if len(key) > 4 else "…" + key
+
+
+_SETTINGS_URL = "https://www.xpoz.ai/settings"
+
+
+def _auth_login(args) -> int:
+    api_key = args.api_key
+    if not api_key:
+        print(f"Get your API key from: {_SETTINGS_URL}")
+        if sys.stdin.isatty():
+            try:
+                answer = input("Open in browser? [Y/n]: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                sys.stderr.write("\nAborted.\n")
+                return 1
+            if answer in ("", "y", "yes"):
+                try:
+                    webbrowser.open(_SETTINGS_URL)
+                except Exception:
+                    pass
+        try:
+            api_key = input("Paste your API key: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            sys.stderr.write("\nAborted.\n")
+            return 1
+    if not api_key:
+        sys.stderr.write("No API key provided.\n")
+        return 1
+    cfg = _load_config()
+    cfg["api_key"] = api_key
+    if args.server_url:
+        cfg["server_url"] = args.server_url
+    path = _save_config(cfg)
+    print(f"Stored credentials in {path}")
+    return 0
+
+
+def _auth_logout(_args) -> int:
+    path = _config_path()
+    if _delete_config():
+        print(f"Removed {path}")
+    else:
+        print(f"No stored credentials at {path}")
+    return 0
+
+
+def _auth_status(_args) -> int:
+    path = _config_path()
+    cfg = _load_config()
+    print(f"Config: {path}")
+    if not cfg or not cfg.get("api_key"):
+        print("Not logged in. Run `xpoz-cli auth login` to store an API key.")
+        return 0
+    print(f"API key: {_mask_key(cfg.get('api_key', ''))}")
+    if cfg.get("server_url"):
+        print(f"Server:  {cfg['server_url']}")
+    return 0
+
+
+_AUTH_DISPATCH = {
+    "login": _auth_login,
+    "logout": _auth_logout,
+    "status": _auth_status,
+}
 
 
 # ---------- example synthesis ----------
@@ -268,7 +385,7 @@ Discovery:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="xpoz-cli",
-        description="Standalone CLI wrapper around the xpoz Python SDK.",
+        description="Work seamlessly with Xpoz from the command line.",
         epilog=_TOP_LEVEL_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -301,7 +418,33 @@ def build_parser() -> argparse.ArgumentParser:
             if not callable(method):
                 continue
             _add_method(msub, platform, mname, method)
+
+    _add_auth_parser(plat_sub)
     return parser
+
+
+def _add_auth_parser(plat_sub) -> None:
+    auth_parser = plat_sub.add_parser(
+        "auth",
+        help="store, inspect, and remove persisted API credentials",
+        description="Manage persisted Xpoz credentials (plaintext JSON, gh/aws-cli style).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  xpoz-cli auth login                       # prompt for API key\n"
+            "  xpoz-cli auth login --api-key KEY         # non-interactive\n"
+            "  xpoz-cli auth status\n"
+            "  xpoz-cli auth logout\n"
+        ),
+    )
+    auth_sub = auth_parser.add_subparsers(dest="auth_action", required=True, metavar="ACTION")
+
+    login = auth_sub.add_parser("login", help="store an API key (prompts if not passed)")
+    login.add_argument("--api-key", help="API key to store; if omitted, prompts via stdin (not echoed)")
+    login.add_argument("--server-url", help="optional custom MCP server URL to persist alongside the key")
+
+    auth_sub.add_parser("logout", help="remove stored credentials")
+    auth_sub.add_parser("status", help="show whether credentials are stored and where")
 
 
 # ---------- invocation ----------
@@ -404,13 +547,19 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    api_key = args.api_key or os.environ.get("XPOZ_API_KEY")
+    if args.platform == "auth":
+        sys.exit(_AUTH_DISPATCH[args.auth_action](args))
+
+    stored = _load_config()
+    api_key = args.api_key or os.environ.get("XPOZ_API_KEY") or stored.get("api_key")
     if not api_key:
-        sys.stderr.write("Missing API key. Pass --api-key or set XPOZ_API_KEY.\n")
+        sys.stderr.write(
+            "Missing API key. Run `xpoz-cli auth login`, pass --api-key, or set XPOZ_API_KEY.\n"
+        )
         sys.exit(2)
 
     client_kwargs: dict = {"timeout": args.timeout}
-    server_url = args.server_url or os.environ.get("XPOZ_SERVER_URL")
+    server_url = args.server_url or os.environ.get("XPOZ_SERVER_URL") or stored.get("server_url")
     if server_url:
         client_kwargs["server_url"] = server_url
 
