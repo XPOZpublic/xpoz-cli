@@ -12,9 +12,10 @@ Grab a prebuilt binary from the [Releases page](https://github.com/hossenco/xpoz
 |---|---|
 | Linux x86_64 | `xpoz-cli-linux-amd64` |
 | Linux arm64 | `xpoz-cli-linux-arm64` |
-| macOS Intel | `xpoz-cli-macos-amd64` |
 | macOS Apple Silicon | `xpoz-cli-macos-arm64` |
 | Windows x86_64 | `xpoz-cli-windows-amd64.exe` |
+
+macOS Intel is not currently shipped as a prebuilt binary — install from source with `pip install xpoz` and run `python xpoz_cli.py` directly, or build locally with `pyinstaller --onefile xpoz_cli.py`.
 
 ```bash
 # macOS / Linux

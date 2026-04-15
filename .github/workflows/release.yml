@@ -31,8 +31,6 @@ jobs:
             asset_name: xpoz-cli-linux-amd64
           - os: ubuntu-24.04-arm
             asset_name: xpoz-cli-linux-arm64
-          - os: macos-13-large
-            asset_name: xpoz-cli-macos-amd64
           - os: macos-14
             asset_name: xpoz-cli-macos-arm64
           - os: windows-latest
