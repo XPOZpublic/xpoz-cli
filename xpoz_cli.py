@@ -508,8 +508,11 @@ def _dump(obj):
 
 
 def _render_result(result, args) -> dict | list | str:
-    # CSV export shortcut
-    if args.export_csv_url and hasattr(result, "export_csv"):
+    # CSV export shortcut — either explicit --export-csv-url, or the user
+    # asked for --response-type csv (which returns an empty .data with the
+    # rows living server-side; .export_csv() yields the download URL).
+    csv_mode = getattr(args, "response_type", None) == "csv"
+    if (args.export_csv_url or csv_mode) and hasattr(result, "export_csv"):
         return {"csv_url": result.export_csv()}
 
     # Jump to a specific page
