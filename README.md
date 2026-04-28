@@ -6,7 +6,7 @@ A single standalone binary that wraps the [Xpoz Python SDK](https://github.com/X
 
 ## Install
 
-Grab a prebuilt binary from the [Releases page](https://github.com/hossenco/xpoz-cli/releases) for your platform:
+Grab a prebuilt binary from the [Releases page](https://github.com/XPOZpublic/xpoz-cli/releases) for your platform:
 
 | Platform | Asset |
 |---|---|
@@ -19,7 +19,7 @@ macOS Intel is not currently shipped as a prebuilt binary — install from sourc
 
 ```bash
 # macOS / Linux
-curl -L -o xpoz-cli https://github.com/hossenco/xpoz-cli/releases/latest/download/xpoz-cli-linux-amd64
+curl -L -o xpoz-cli https://github.com/XPOZpublic/xpoz-cli/releases/latest/download/xpoz-cli-linux-amd64
 chmod +x xpoz-cli
 sudo mv xpoz-cli /usr/local/bin/
 ```
