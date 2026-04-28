@@ -113,4 +113,4 @@ Multi-platform binaries are built by the [`build-release` workflow](.github/work
 
 ## License
 
-Private — internal to Xpoz / Hossenco.
+MIT — see [LICENSE](LICENSE).
