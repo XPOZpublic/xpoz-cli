@@ -85,6 +85,40 @@ def _is_list(ann):
     return typing.get_origin(base) in (list, typing.List)  # noqa: UP006
 
 
+def _unwrap_inner_model(ann):
+    """Strip Optional, then drill through generics (PaginatedResult[X], list[X])
+    to the innermost class. Returns the class or None."""
+    if ann is None or ann is inspect.Signature.empty:
+        return None
+    base = _unwrap_optional(ann)
+    while True:
+        origin = typing.get_origin(base)
+        if origin is None:
+            return base if inspect.isclass(base) else None
+        args = typing.get_args(base)
+        if not args:
+            return origin if inspect.isclass(origin) else None
+        base = _unwrap_optional(args[0])
+
+
+def _resolve_fields_model(param_name: str, return_ann):
+    """For a `fields` or `<stem>_fields` parameter, find the pydantic model
+    whose `model_fields` are the valid values. Returns the model class or None."""
+    inner = _unwrap_inner_model(return_ann)
+    if inner is None or not hasattr(inner, "model_fields"):
+        return None
+    if param_name == "fields":
+        return inner
+    if param_name.endswith("_fields"):
+        stem = param_name[: -len("_fields")]
+        for candidate in (stem, stem + "s"):
+            if candidate in inner.model_fields:
+                sub = _unwrap_inner_model(inner.model_fields[candidate].annotation)
+                if sub is not None and hasattr(sub, "model_fields"):
+                    return sub
+    return None
+
+
 def _first_doc_line(obj) -> str:
     doc = inspect.getdoc(obj) or ""
     return doc.strip().split("\n", 1)[0]
@@ -333,8 +367,15 @@ def _add_param(parser: argparse.ArgumentParser, name: str, param, hints: dict) -
         if required:
             kwargs["required"] = True
 
+    help_parts: list[str] = []
+    if name == "fields" or name.endswith("_fields"):
+        model = _resolve_fields_model(name, hints.get("return"))
+        if model is not None:
+            help_parts.append("available: " + ", ".join(model.model_fields))
     if not required and param.default not in (inspect.Parameter.empty, None):
-        kwargs["help"] = f"(default: {param.default!r})"
+        help_parts.append(f"(default: {param.default!r})")
+    if help_parts:
+        kwargs["help"] = " ".join(help_parts)
 
     try:
         parser.add_argument(flag, **kwargs)
