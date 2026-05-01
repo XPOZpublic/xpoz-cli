@@ -1,0 +1,175 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to (re)publish (e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    name: resolve metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.event.release.tag_name }}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+  publish-pypi:
+    name: PyPI
+    needs: meta
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_PYPI_PUBLISH == 'true' }}
+    permissions:
+      id-token: write   # trusted publishing — no API token needed
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+          fetch-depth: 0   # setuptools-scm reads tags from full history
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Verify built version matches tag
+        run: |
+          built=$(ls dist/*.whl | sed -E 's|.*/xpoz_cli-([^-]+)-.*|\1|')
+          expected="${{ needs.meta.outputs.version }}"
+          if [[ "$built" != "$expected" ]]; then
+            echo "Built version ($built) does not match tag ($expected)" >&2
+            exit 1
+          fi
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-homebrew:
+    name: Homebrew tap
+    needs: meta
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_HOMEBREW_PUBLISH == 'true' }}
+    env:
+      TAP_REPO: XPOZpublic/homebrew-xpoz
+      FORMULA_PATH: Formula/xpoz-cli.rb
+      RELEASE_BASE: https://github.com/XPOZpublic/xpoz-cli/releases/download/${{ needs.meta.outputs.tag }}
+    steps:
+      - name: Compute SHA256 of release assets
+        id: sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          for asset in xpoz-cli-macos-arm64 xpoz-cli-linux-amd64 xpoz-cli-linux-arm64; do
+            curl -fsSL "$RELEASE_BASE/$asset" -o "$asset"
+            sha=$(sha256sum "$asset" | awk '{print $1}')
+            key=$(echo "$asset" | tr '-' '_')
+            echo "${key}=${sha}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Render formula
+        shell: bash
+        run: |
+          cat > xpoz-cli.rb <<EOF
+          class XpozCli < Formula
+            desc "Standalone CLI wrapper around the Xpoz Python SDK"
+            homepage "https://www.xpoz.ai"
+            version "${{ needs.meta.outputs.version }}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "${RELEASE_BASE}/xpoz-cli-macos-arm64"
+                sha256 "${{ steps.sha.outputs.xpoz_cli_macos_arm64 }}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "${RELEASE_BASE}/xpoz-cli-linux-amd64"
+                sha256 "${{ steps.sha.outputs.xpoz_cli_linux_amd64 }}"
+              end
+              on_arm do
+                url "${RELEASE_BASE}/xpoz-cli-linux-arm64"
+                sha256 "${{ steps.sha.outputs.xpoz_cli_linux_arm64 }}"
+              end
+            end
+
+            def install
+              binary = Dir["xpoz-cli-*"].first
+              bin.install binary => "xpoz-cli"
+            end
+
+            test do
+              assert_match "xpoz-cli", shell_output("#{bin}/xpoz-cli --help")
+            end
+          end
+          EOF
+
+      - name: Push formula to tap repo
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "HOMEBREW_TAP_TOKEN secret is not set" >&2
+            exit 1
+          fi
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git" tap
+          mkdir -p "tap/$(dirname "$FORMULA_PATH")"
+          cp xpoz-cli.rb "tap/$FORMULA_PATH"
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$FORMULA_PATH"
+          if git diff --cached --quiet; then
+            echo "Formula already up to date"
+            exit 0
+          fi
+          git commit -m "xpoz-cli ${{ needs.meta.outputs.version }}"
+          git push
+
+  publish-winget:
+    name: winget
+    needs: meta
+    runs-on: windows-latest
+    if: ${{ vars.ENABLE_WINGET_PUBLISH == 'true' }}
+    env:
+      PACKAGE_ID: Xpoz.XpozCli
+      INSTALLER_URL: https://github.com/XPOZpublic/xpoz-cli/releases/download/${{ needs.meta.outputs.tag }}/xpoz-cli-windows-amd64.exe
+    steps:
+      - name: Submit winget update via wingetcreate
+        shell: pwsh
+        run: |
+          if (-not "${{ secrets.WINGET_TOKEN }}") {
+            Write-Error "WINGET_TOKEN secret is not set"
+            exit 1
+          }
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe update $env:PACKAGE_ID `
+            --urls $env:INSTALLER_URL `
+            --version "${{ needs.meta.outputs.version }}" `
+            --token "${{ secrets.WINGET_TOKEN }}" `
+            --submit
