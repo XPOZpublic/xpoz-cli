@@ -10,6 +10,9 @@ __pycache__/
 .venv/
 venv/
 
+# setuptools-scm generated version file
+/_xpoz_cli_version.py
+
 # OS / editor
 .DS_Store
 Thumbs.db

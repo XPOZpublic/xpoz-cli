@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xpoz-cli"
+description = "Standalone CLI wrapper around the xpoz Python SDK."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+authors = [{ name = "Xpoz" }]
+keywords = ["xpoz", "cli", "twitter", "instagram", "reddit", "tiktok", "social-media"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+dependencies = ["xpoz>=0.6.0"]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://www.xpoz.ai"
+Repository = "https://github.com/XPOZpublic/xpoz-cli"
+Issues = "https://github.com/XPOZpublic/xpoz-cli/issues"
+
+[project.scripts]
+xpoz-cli = "xpoz_cli:main"
+
+[tool.setuptools]
+py-modules = ["xpoz_cli", "_xpoz_cli_version"]
+
+[tool.setuptools_scm]
+version_file = "_xpoz_cli_version.py"
