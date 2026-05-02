@@ -77,9 +77,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller xpoz
 
-      - name: Generate _xpoz_cli_version.py from tag
+      - name: Write _xpoz_cli_version.py from tag
         shell: bash
-        run: pip install -e . --no-deps
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+          version="${tag#v}"
+          printf '__version__ = "%s"\n' "$version" > _xpoz_cli_version.py
+          cat _xpoz_cli_version.py
 
       - name: Build with PyInstaller
         shell: bash
