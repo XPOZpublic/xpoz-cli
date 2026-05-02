@@ -1,8 +1,9 @@
 name: publish
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["build-release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -17,18 +18,39 @@ jobs:
   meta:
     name: resolve metadata
     runs-on: ubuntu-latest
+    # workflow_run fires on every completion; only proceed on success.
+    # workflow_dispatch always proceeds.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
     steps:
       - id: meta
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             tag="${{ inputs.tag }}"
           else
-            tag="${{ github.event.release.tag_name }}"
+            # workflow_run path: derive the tag from the upstream build-release run.
+            # If the upstream was tag-pushed, head_branch is the tag name.
+            # If the upstream was workflow_dispatch'd with a tag input, read the input.
+            upstream_event="${{ github.event.workflow_run.event }}"
+            if [[ "$upstream_event" == "workflow_dispatch" ]]; then
+              tag=$(gh api \
+                "repos/$GITHUB_REPOSITORY/actions/runs/${{ github.event.workflow_run.id }}" \
+                --jq '.inputs.tag // empty')
+            else
+              tag="${{ github.event.workflow_run.head_branch }}"
+            fi
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "Could not resolve tag from upstream run" >&2
+            exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
@@ -37,7 +59,7 @@ jobs:
     name: PyPI
     needs: meta
     runs-on: ubuntu-latest
-    if: ${{ vars.ENABLE_PYPI_PUBLISH == 'true' }}
+    if: ${{ needs.meta.result == 'success' && vars.ENABLE_PYPI_PUBLISH == 'true' }}
     permissions:
       id-token: write   # trusted publishing — no API token needed
     steps:
@@ -70,7 +92,7 @@ jobs:
     name: Homebrew tap
     needs: meta
     runs-on: ubuntu-latest
-    if: ${{ vars.ENABLE_HOMEBREW_PUBLISH == 'true' }}
+    if: ${{ needs.meta.result == 'success' && vars.ENABLE_HOMEBREW_PUBLISH == 'true' }}
     env:
       TAP_REPO: XPOZpublic/homebrew-xpoz
       FORMULA_PATH: Formula/xpoz-cli.rb
@@ -155,7 +177,7 @@ jobs:
     name: winget
     needs: meta
     runs-on: windows-latest
-    if: ${{ vars.ENABLE_WINGET_PUBLISH == 'true' }}
+    if: ${{ needs.meta.result == 'success' && vars.ENABLE_WINGET_PUBLISH == 'true' }}
     env:
       PACKAGE_ID: Xpoz.XpozCli
       INSTALLER_URL: https://github.com/XPOZpublic/xpoz-cli/releases/download/${{ needs.meta.outputs.tag }}/xpoz-cli-windows-amd64.exe

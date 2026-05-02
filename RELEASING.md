@@ -52,7 +52,7 @@ macOS Intel is intentionally not shipped as a prebuilt binary — users on that 
 
 | Property | Value |
 |---|---|
-| Triggers | `release: published` (fires the moment `release.yml` finishes), or `workflow_dispatch` with an existing tag |
+| Triggers | `workflow_run` on successful completion of `build-release` (the `release.yml` workflow), or `workflow_dispatch` with an existing tag. Uses `workflow_run` rather than `release: published` because GitHub doesn't fan releases created via `GITHUB_TOKEN` out to other workflows. |
 | Jobs | `meta` (resolves tag/version), then in parallel: `publish-pypi`, `publish-homebrew`, `publish-winget` |
 
 Each publish job is gated by a repository variable (`vars.ENABLE_*_PUBLISH`). A job is **skipped** unless its variable is set to `true`. This lets you enable each destination independently as the one-time setup is completed.
@@ -73,9 +73,9 @@ git push origin vX.Y.Z
         +------> release.yml     (parallel: 4 PyInstaller binaries -> GitHub Release)
                        |
                        v
-                   release: published
+              build-release succeeds
                        |
-                       v
+                       v   (workflow_run trigger)
                   publish.yml
                        |
               +--------+--------+
@@ -157,7 +157,7 @@ After the initial PR is merged, the `publish-winget` job will open update PRs au
 
 If a publish job fails (bad token, transient network error, etc.), you don't need to cut a new tag. Go to **Actions → publish → Run workflow** and supply the existing tag (e.g., `v0.2.0`). The same gating applies, so only enabled destinations re-run.
 
-The `meta` job uses `inputs.tag` for `workflow_dispatch` and `github.event.release.tag_name` for `release: published`, so both paths produce the same `tag` and `version` outputs downstream.
+The `meta` job derives the tag from `inputs.tag` for `workflow_dispatch`, from `github.event.workflow_run.head_branch` when the upstream `build-release` was tag-pushed, or from the upstream run's `inputs.tag` (looked up via `gh api`) when it was `workflow_dispatch`'d. All three paths produce the same `tag` and `version` outputs downstream.
 
 ## Troubleshooting
 
@@ -166,7 +166,7 @@ The `meta` job uses `inputs.tag` for `workflow_dispatch` and `github.event.relea
 | `publish-pypi` fails with "no trusted publisher configured" | Trusted publisher not added on pypi.org, or its `Workflow name` field doesn't match `publish.yml`. |
 | `publish-pypi` fails with "Built version (X) does not match tag (Y)" | The tag pushed isn't a `vX.Y.Z` semver tag, or `setuptools-scm` couldn't read tags (`fetch-depth: 0` is set, so this should be rare). |
 | `publish-homebrew` fails on `git push` | `HOMEBREW_TAP_TOKEN` is missing, expired, or doesn't have `Contents: Read and write` on the tap repo. |
-| `publish-homebrew` fails fetching release assets | `release.yml` produced fewer than three Linux/macOS binaries, or the tag's GitHub Release doesn't exist yet. The job triggers on `release: published`, so this should only happen on `workflow_dispatch` runs against tags whose release was deleted. |
+| `publish-homebrew` fails fetching release assets | `release.yml` produced fewer than three Linux/macOS binaries, or the tag's GitHub Release doesn't exist yet. The job runs after `build-release` succeeds, so this should only happen on `workflow_dispatch` runs against tags whose release was deleted. |
 | `publish-winget` fails with "Package identifier not found" | The first manual `wingetcreate new` submission hasn't been merged into `microsoft/winget-pkgs` yet. |
 | `publish-winget` fails with auth error | `WINGET_TOKEN` is missing or doesn't have `public_repo` scope. |
 | `ci.yml` build succeeds locally but fails on a tag push | Likely a `setuptools-scm` issue: locally you used `SETUPTOOLS_SCM_PRETEND_VERSION`, in CI it relies on git tags. Confirm `fetch-depth: 0` is still in the checkout step. |
