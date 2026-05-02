@@ -47,6 +47,11 @@ import typing
 import webbrowser
 from enum import Enum
 
+# BaseExceptionGroup is a builtin in 3.11+; for 3.10 use the PyPI backport.
+# anyio (used by the SDK) raises real ExceptionGroup instances either way.
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup  # noqa: F401
+
 try:
     from xpoz import XpozClient, ResponseType  # type: ignore
     from xpoz.namespaces import (  # type: ignore
