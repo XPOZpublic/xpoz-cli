@@ -6,7 +6,50 @@ A single standalone binary that wraps the [Xpoz Python SDK](https://github.com/X
 
 ## Install
 
-Grab a prebuilt binary from the [Releases page](https://github.com/XPOZpublic/xpoz-cli/releases) for your platform:
+### One-liner (Linux/macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/XPOZpublic/xpoz-cli/main/install.sh | sh
+```
+
+Auto-detects your OS and CPU architecture, downloads the matching binary from GitHub Releases, verifies its SHA256, and drops it in `~/.local/bin/xpoz-cli`. Override the install dir with `XPOZ_INSTALL_DIR=/usr/local/bin`, or pin a version with `XPOZ_VERSION=v0.2.0`.
+
+### One-liner (Windows, PowerShell)
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/XPOZpublic/xpoz-cli/main/install.ps1 | iex
+```
+
+Same idea — installs to `%LOCALAPPDATA%\xpoz-cli\xpoz-cli.exe` and prints the one PATH command you need to run if it isn't already on your PATH.
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap XPOZpublic/xpoz
+brew install xpoz-cli
+```
+
+Or in one line: `brew install XPOZpublic/xpoz/xpoz-cli`.
+
+### winget (Windows)
+
+```cmd
+winget install Xpoz.XpozCli
+```
+
+(or `winget install xpoz-cli` once the manifest is published in [`microsoft/winget-pkgs`](https://github.com/microsoft/winget-pkgs)).
+
+### pip (any platform with Python ≥3.10)
+
+```bash
+pip install xpoz-cli
+```
+
+Pulls the wheel from [PyPI](https://pypi.org/project/xpoz-cli/). Requires Python on the user's machine; the other channels above bundle Python via PyInstaller.
+
+### Manual download
+
+Pick the asset matching your platform from the [Releases page](https://github.com/XPOZpublic/xpoz-cli/releases):
 
 | Platform | Asset |
 |---|---|
@@ -15,16 +58,16 @@ Grab a prebuilt binary from the [Releases page](https://github.com/XPOZpublic/xp
 | macOS Apple Silicon | `xpoz-cli-macos-arm64` |
 | Windows x86_64 | `xpoz-cli-windows-amd64.exe` |
 
-macOS Intel is not currently shipped as a prebuilt binary — install from source with `pip install xpoz` and run `python xpoz_cli.py` directly, or build locally with `pyinstaller --onefile xpoz_cli.py`.
+Each release also publishes `SHA256SUMS` for offline verification:
 
 ```bash
-# macOS / Linux
-curl -L -o xpoz-cli https://github.com/XPOZpublic/xpoz-cli/releases/latest/download/xpoz-cli-linux-amd64
-chmod +x xpoz-cli
-sudo mv xpoz-cli /usr/local/bin/
+curl -fsSLO https://github.com/XPOZpublic/xpoz-cli/releases/latest/download/xpoz-cli-linux-amd64
+curl -fsSLO https://github.com/XPOZpublic/xpoz-cli/releases/latest/download/SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+chmod +x xpoz-cli-linux-amd64 && sudo mv xpoz-cli-linux-amd64 /usr/local/bin/xpoz-cli
 ```
 
-Native package-manager distribution (Homebrew, apt, winget) is planned.
+macOS Intel is not currently shipped as a prebuilt binary — use `pip install xpoz-cli` instead.
 
 ## Quick start
 
@@ -89,7 +132,7 @@ API key precedence: `--api-key` flag → `XPOZ_API_KEY` env → stored config.
 
 ## Build from source
 
-Requires Python 3.12+.
+Requires Python 3.10+.
 
 ```bash
 pip install xpoz pyinstaller
