@@ -133,6 +133,14 @@ jobs:
       - name: List artifacts
         run: ls -lh dist
 
+      - name: Generate SHA256SUMS
+        shell: bash
+        working-directory: dist
+        run: |
+          sha256sum xpoz-cli-* > SHA256SUMS
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
       - name: Resolve tag and flags
         id: meta
         shell: bash
@@ -157,4 +165,4 @@ jobs:
             --title "${{ steps.meta.outputs.tag }}" \
             --generate-notes \
             ${{ steps.meta.outputs.prerelease_flag }} \
-            dist/xpoz-cli-*
+            dist/xpoz-cli-* dist/SHA256SUMS

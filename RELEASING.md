@@ -45,6 +45,7 @@ Output asset names:
 - `xpoz-cli-linux-arm64`
 - `xpoz-cli-macos-arm64`
 - `xpoz-cli-windows-amd64.exe`
+- `SHA256SUMS` — generated in the `release` job from all four binaries; consumed by `install.sh` / `install.ps1` for integrity verification.
 
 macOS Intel is intentionally not shipped as a prebuilt binary — users on that platform install from source via `pip install xpoz-cli`.
 
