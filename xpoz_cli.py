@@ -546,6 +546,11 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_TOP_LEVEL_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument(
+        "--version", "-V",
+        action="version",
+        version=f"xpoz-cli {__version__}",
+    )
     parser.add_argument("--api-key", help="Xpoz API key (or env XPOZ_API_KEY)")
     parser.add_argument("--server-url", help="Custom MCP server URL")
     parser.add_argument("--timeout", type=int, default=300, help="Operation timeout seconds (default 300)")
