@@ -27,7 +27,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "xpoz>=0.7.0",
+    "xpoz>=0.6.2",
     "exceptiongroup>=1.0; python_version < '3.11'",
 ]
 dynamic = ["version"]
