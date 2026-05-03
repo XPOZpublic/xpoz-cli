@@ -112,8 +112,11 @@ def _unwrap_inner_model(ann):
 
 
 def _resolve_fields_model(param_name: str, return_ann):
-    """For a `fields` or `<stem>_fields` parameter, find the pydantic model
-    whose `model_fields` are the valid values. Returns the model class or None."""
+    """Fallback for SDKs without per-method `allowed_fields`: find the pydantic
+    model whose `model_fields` are the valid values. Returns the class or None.
+
+    The SDK >=0.6.2 attaches `method.allowed_fields = {param: frozenset[str]}`
+    directly. Prefer that when present (see `_resolve_allowed_fields`)."""
     inner = _unwrap_inner_model(return_ann)
     if inner is None or not hasattr(inner, "model_fields"):
         return None
@@ -126,6 +129,20 @@ def _resolve_fields_model(param_name: str, return_ann):
                 sub = _unwrap_inner_model(inner.model_fields[candidate].annotation)
                 if sub is not None and hasattr(sub, "model_fields"):
                     return sub
+    return None
+
+
+def _resolve_allowed_fields(method, param_name: str, hints: dict) -> list[str] | None:
+    """Return the sorted list of field names the API accepts for this method's
+    `<param_name>` parameter. Prefers `method.allowed_fields[param_name]` from
+    the SDK; falls back to `model.model_fields` for older SDKs."""
+    af = getattr(method, "allowed_fields", None)
+    if isinstance(af, dict) and param_name in af:
+        return sorted(af[param_name])
+    # Fallback for older SDK versions
+    model = _resolve_fields_model(param_name, hints.get("return"))
+    if model is not None:
+        return sorted(model.model_fields)
     return None
 
 
@@ -345,7 +362,7 @@ def _build_platform_epilog(platform: str, ns_cls) -> str:
 
 # ---------- argparse construction ----------
 
-def _add_param(parser: argparse.ArgumentParser, name: str, param, hints: dict) -> None:
+def _add_param(parser: argparse.ArgumentParser, name: str, param, hints: dict, method=None) -> None:
     ann = hints.get(name, str)
     base = _unwrap_optional(ann)
     required = param.default is inspect.Parameter.empty
@@ -379,9 +396,10 @@ def _add_param(parser: argparse.ArgumentParser, name: str, param, hints: dict) -
 
     help_parts: list[str] = []
     if name == "fields" or name.endswith("_fields"):
-        model = _resolve_fields_model(name, hints.get("return"))
-        if model is not None:
-            help_parts.append("available: " + ", ".join(model.model_fields))
+        allowed = _resolve_allowed_fields(method, name, hints) if method is not None else None
+        if allowed is not None:
+            help_parts.append("available: " + ", ".join(allowed))
+            help_parts.append("[wildcards: 'all' (every available field), 'default' (SDK default)]")
     if not required and param.default not in (inspect.Parameter.empty, None):
         help_parts.append(f"(default: {param.default!r})")
     if help_parts:
@@ -412,7 +430,7 @@ def _add_method(sub, platform: str, name: str, method) -> None:
     for pname, param in sig.parameters.items():
         if pname == "self":
             continue
-        _add_param(p, pname, param, hints)
+        _add_param(p, pname, param, hints, method=method)
     p.set_defaults(_platform=platform, _method=name)
 
 
@@ -541,6 +559,56 @@ def _coerce_enums(kwargs: dict) -> None:
             kwargs["response_type"] = ResponseType[key]
 
 
+_FIELDS_WILDCARDS = {"all", "default"}
+
+
+def _expand_fields_kwargs(call_kwargs: dict, sig: inspect.Signature, method, hints: dict) -> None:
+    """Resolve `--fields` / `--*-fields` wildcards.
+
+    Behavior (opt-in only — implicit default unchanged):
+      no flag passed   → leave kwarg absent; SDK's own default applies
+      --fields all     → expand to method.allowed_fields[<param>]  (every API-queryable field)
+      --fields default → drop the kwarg so the SDK's own default applies (explicit form)
+      --fields a b c   → pass through unchanged
+    Mixing a wildcard with explicit names is rejected.
+
+    Looks up the queryable set from `method.allowed_fields` (SDK >=0.6.2).
+    Falls back to the result-model's `model_fields` for older SDKs.
+    """
+    for pname in sig.parameters:
+        if pname == "self":
+            continue
+        if pname != "fields" and not pname.endswith("_fields"):
+            continue
+
+        val = call_kwargs.get(pname)
+        if val is None:
+            # No flag passed — leave kwarg absent so the SDK default applies.
+            continue
+        if not isinstance(val, list):
+            continue
+
+        wildcards = [v for v in val if v in _FIELDS_WILDCARDS]
+        if not wildcards:
+            continue  # explicit list of names — pass through unchanged
+        if len(val) > 1:
+            sys.stderr.write(
+                f"error: --{pname.replace('_', '-')}: "
+                f"'all' and 'default' cannot be combined with specific field names\n"
+            )
+            sys.exit(2)
+
+        wildcard = wildcards[0]
+        if wildcard == "all":
+            allowed = _resolve_allowed_fields(method, pname, hints)
+            if allowed is not None:
+                call_kwargs[pname] = list(allowed)
+            else:
+                call_kwargs.pop(pname, None)  # no metadata available — SDK default
+        elif wildcard == "default":
+            call_kwargs.pop(pname, None)
+
+
 def _dump(obj):
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
@@ -614,7 +682,7 @@ def main() -> None:
 
     client_kwargs: dict = {
         "timeout": args.timeout,
-        "_user_agent_suffix": f"xpoz-cli/{__version__}",
+        "_user_agent": f"xpoz-cli/{__version__}",
     }
     server_url = args.server_url or os.environ.get("XPOZ_SERVER_URL") or stored.get("server_url")
     if server_url:
@@ -630,8 +698,13 @@ def main() -> None:
         ns = getattr(client, args.platform)
         method = getattr(ns, args.method)
         sig = inspect.signature(method)
+        try:
+            hints = typing.get_type_hints(method)
+        except Exception:
+            hints = {}
         call_kwargs = _collect_kwargs(args, sig)
         _coerce_enums(call_kwargs)
+        _expand_fields_kwargs(call_kwargs, sig, method, hints)
 
         try:
             result = method(**call_kwargs)
