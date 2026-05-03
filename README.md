@@ -2,7 +2,7 @@
 
 Work seamlessly with [Xpoz](https://www.xpoz.ai) from the command line.
 
-A single standalone binary that wraps the [Xpoz Python SDK](https://github.com/XPOZpublic/xpoz-python-sdk) and exposes every SDK method as a CLI subcommand — Twitter, Instagram, Reddit, TikTok, and tracking — with paginated result handling, CSV export, and persistent auth.
+Get data and insights from Twitter/X, Instagram, TikTok, Reddit and others social media with paginated result handling, CSV export, and persistent auth.
 
 ## Install
 
