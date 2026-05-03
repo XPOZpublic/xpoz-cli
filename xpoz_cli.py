@@ -614,7 +614,7 @@ def main() -> None:
 
     client_kwargs: dict = {
         "timeout": args.timeout,
-        "_user_agent_suffix": f"xpoz-cli/{__version__}",
+        "_user_agent": f"xpoz-cli/{__version__}",
     }
     server_url = args.server_url or os.environ.get("XPOZ_SERVER_URL") or stored.get("server_url")
     if server_url:
