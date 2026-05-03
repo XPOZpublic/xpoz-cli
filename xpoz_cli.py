@@ -487,7 +487,7 @@ def _add_param(parser: argparse.ArgumentParser, name: str, param, hints: dict, m
         allowed = _resolve_allowed_fields(method, name, hints) if method is not None else None
         if allowed is not None:
             help_parts.append("available: " + ", ".join(allowed))
-            help_parts.append("[wildcards: 'all' (every available field), 'default' (SDK default)]")
+            help_parts.append("[wildcards: 'all' (default — every available field), 'default' (SDK default)]")
     if not required and param.default not in (inspect.Parameter.empty, None):
         help_parts.append(f"(default: {param.default!r})")
     if help_parts:
@@ -651,12 +651,12 @@ _FIELDS_WILDCARDS = {"all", "default"}
 
 
 def _expand_fields_kwargs(call_kwargs: dict, sig: inspect.Signature, method, hints: dict) -> None:
-    """Resolve `--fields` / `--*-fields` wildcards.
+    """Resolve `--fields` / `--*-fields` wildcards and the implicit default.
 
-    Behavior (opt-in only — implicit default unchanged):
-      no flag passed   → leave kwarg absent; SDK's own default applies
-      --fields all     → expand to method.allowed_fields[<param>]  (every API-queryable field)
-      --fields default → drop the kwarg so the SDK's own default applies (explicit form)
+    Behavior:
+      no flag passed   → expand to method.allowed_fields[<param>]  (every API-queryable field)
+      --fields all     → same as no flag
+      --fields default → drop the kwarg so the SDK's own default applies
       --fields a b c   → pass through unchanged
     Mixing a wildcard with explicit names is rejected.
 
@@ -670,31 +670,34 @@ def _expand_fields_kwargs(call_kwargs: dict, sig: inspect.Signature, method, hin
             continue
 
         val = call_kwargs.get(pname)
+
+        # Determine intent
         if val is None:
-            # No flag passed — leave kwarg absent so the SDK default applies.
-            continue
-        if not isinstance(val, list):
-            continue
+            wildcard = "all"  # implicit default — give the user everything
+        elif isinstance(val, list):
+            wildcards = [v for v in val if v in _FIELDS_WILDCARDS]
+            if wildcards:
+                if len(val) > 1:
+                    sys.stderr.write(
+                        f"error: --{pname.replace('_', '-')}: "
+                        f"'all' and 'default' cannot be combined with specific field names\n"
+                    )
+                    sys.exit(2)
+                wildcard = wildcards[0]
+            else:
+                wildcard = None  # explicit list of field names
+        else:
+            wildcard = None
 
-        wildcards = [v for v in val if v in _FIELDS_WILDCARDS]
-        if not wildcards:
-            continue  # explicit list of names — pass through unchanged
-        if len(val) > 1:
-            sys.stderr.write(
-                f"error: --{pname.replace('_', '-')}: "
-                f"'all' and 'default' cannot be combined with specific field names\n"
-            )
-            sys.exit(2)
-
-        wildcard = wildcards[0]
         if wildcard == "all":
             allowed = _resolve_allowed_fields(method, pname, hints)
             if allowed is not None:
                 call_kwargs[pname] = list(allowed)
             else:
-                call_kwargs.pop(pname, None)  # no metadata available — SDK default
+                call_kwargs.pop(pname, None)  # no metadata — fall back to SDK default
         elif wildcard == "default":
             call_kwargs.pop(pname, None)
+        # else: explicit list of names — pass through unchanged
 
 
 def _dump(obj):
