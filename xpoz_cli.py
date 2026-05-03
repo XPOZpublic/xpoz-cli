@@ -70,6 +70,94 @@ try:
 except ImportError:
     __version__ = "0+unknown"
 
+
+# ---------- resilience against SDK type-declaration bugs ----------
+#
+# The SDK validates API responses through `model.model_validate(...)`. When a
+# pydantic field type declaration disagrees with what the API actually returns
+# (e.g. a field declared `str` that the API returns as `int`), validation
+# raises `ValidationError` and the user sees a crash with no data.
+#
+# Patch `model_validate` on every result model used by the SDK so that a
+# failure falls back to `model.model_construct(...)`. `model_construct` skips
+# type checking and coercion entirely — the user gets the raw data with
+# whatever types the API returned, which the CLI then JSON-dumps as-is. A
+# single warning per (model, error) pair is emitted to stderr so the
+# regression is visible without drowning paginated output.
+#
+# This is a defensive monkey-patch on the SDK's pydantic models. If a future
+# SDK release stops using `model_validate` (unlikely — it's the canonical
+# pydantic v2 entry point), the shim silently no-ops and the CLI reverts to
+# the SDK's strict behavior, same as today.
+try:
+    from pydantic import BaseModel as _PydBaseModel
+
+    _xpoz_seen_warnings: set = set()
+
+    def _patch_model_validate(cls):
+        """Wrap cls.model_validate to fall back to model_construct on error.
+
+        cls.model_validate is a pydantic classmethod, accessed as a bound
+        method (cls is auto-injected). We replace it with a plain function
+        attribute; subsequent `cls.model_validate(data)` calls go straight
+        to our function with `data` as the first positional arg.
+        """
+        orig = cls.model_validate  # bound method — cls already captured
+        if getattr(orig, "_xpoz_resilient", False):
+            return  # already patched
+
+        def resilient(data, **kw):
+            try:
+                return orig(data, **kw)
+            except Exception as exc:
+                # Dedup on (model, field-path, error-kind) so we get one
+                # warning per distinct issue across paginated rows.
+                if hasattr(exc, "errors") and callable(exc.errors):
+                    try:
+                        errs = exc.errors()
+                    except Exception:
+                        errs = []
+                    if errs:
+                        first = errs[0]
+                        loc = ".".join(str(p) for p in (first.get("loc") or ()))
+                        key = (cls.__name__, loc, first.get("type", ""))
+                        detail = f"{loc}: {first.get('type', '')}"
+                    else:
+                        key = (cls.__name__, type(exc).__name__)
+                        detail = type(exc).__name__
+                else:
+                    key = (cls.__name__, type(exc).__name__, str(exc)[:200])
+                    detail = type(exc).__name__
+                if key not in _xpoz_seen_warnings:
+                    _xpoz_seen_warnings.add(key)
+                    sys.stderr.write(
+                        f"warning: SDK validation failed for {cls.__name__} "
+                        f"[{detail}] — falling back to raw data; types may "
+                        f"not match the SDK's annotations.\n"
+                    )
+                if isinstance(data, dict):
+                    try:
+                        return cls.model_construct(**data)
+                    except Exception:
+                        pass
+                raise exc
+
+        resilient._xpoz_resilient = True  # type: ignore[attr-defined]
+        cls.model_validate = resilient  # type: ignore[assignment]
+
+    # Apply to every BaseModel subclass currently visible under xpoz.types.
+    import xpoz.types as _xpoz_types  # noqa: F401
+    import pkgutil, importlib
+    for _mod_info in pkgutil.iter_modules(_xpoz_types.__path__):
+        _mod = importlib.import_module(f"xpoz.types.{_mod_info.name}")
+        for _name in dir(_mod):
+            _obj = getattr(_mod, _name)
+            if isinstance(_obj, type) and issubclass(_obj, _PydBaseModel) and _obj is not _PydBaseModel:
+                _patch_model_validate(_obj)
+except Exception:
+    pass  # SDK internals changed — fall through to default strict behavior.
+
+
 PLATFORMS: dict = {
     "twitter": TwitterNamespace,
     "instagram": InstagramNamespace,
