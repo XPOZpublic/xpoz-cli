@@ -802,11 +802,43 @@ def main() -> None:
         _coerce_enums(call_kwargs)
         _expand_fields_kwargs(call_kwargs, sig, method, hints)
 
-        try:
-            result = method(**call_kwargs)
-        except BaseException as e:
-            sys.stderr.write(f"{_flatten_error(e)}\n")
+        # Wall-clock timeout. The SDK's `timeout` argument only governs its
+        # polling loop, not the underlying transport call — so a backend that
+        # accepts the TCP connection but never sends a response can hang the
+        # SDK indefinitely. We enforce `args.timeout` here at the CLI layer
+        # by running the call in a daemon thread and giving up if it
+        # doesn't finish in time. The thread is abandoned (process exits);
+        # the OS reclaims its resources.
+        import threading
+
+        _result_holder: list = []
+        _exc_holder: list = []
+
+        def _runner():
+            try:
+                _result_holder.append(method(**call_kwargs))
+            except BaseException as e:
+                _exc_holder.append(e)
+
+        worker = threading.Thread(target=_runner, daemon=True, name="xpoz-cli-call")
+        worker.start()
+        worker.join(timeout=args.timeout)
+        if worker.is_alive():
+            sys.stderr.write(
+                f"timeout: operation did not complete within {args.timeout}s. "
+                f"The backend may be unresponsive — try `--timeout N` for a longer "
+                f"wait, or check the Xpoz status page.\n"
+            )
+            sys.stderr.flush()
+            # When the SDK transport is stuck, normal Python cleanup (incl.
+            # `client.close()` in the outer finally) also hangs because it
+            # routes through the same blocked portal. `os._exit` bypasses
+            # all cleanup; the OS reclaims fds and the daemon thread.
+            os._exit(124)  # convention: 124 == timed out
+        if _exc_holder:
+            sys.stderr.write(f"{_flatten_error(_exc_holder[0])}\n")
             sys.exit(1)
+        result = _result_holder[0]
 
         payload = _render_result(result, args)
     finally:
