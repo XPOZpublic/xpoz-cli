@@ -25,11 +25,17 @@ Same idea — installs to `%LOCALAPPDATA%\xpoz-cli\xpoz-cli.exe` and prints the 
 ### Homebrew (macOS / Linux)
 
 ```bash
+brew install XPOZpublic/xpoz/xpoz-cli
+```
+
+The `<owner>/<tap>/<formula>` syntax auto-taps and installs in one step. Equivalent two-step form if you prefer:
+
+```bash
 brew tap XPOZpublic/xpoz
 brew install xpoz-cli
 ```
 
-Or in one line: `brew install XPOZpublic/xpoz/xpoz-cli`.
+Note: a bare `brew install xpoz-cli` won't work — the formula lives in our own tap, not in `homebrew-core`.
 
 ### winget (Windows)
 
