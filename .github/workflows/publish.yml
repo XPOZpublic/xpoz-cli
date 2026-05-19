@@ -73,6 +73,10 @@ jobs:
           python-version: '3.14'
 
       - name: Build sdist + wheel
+        env:
+          # Pin the version setuptools-scm reports, so re-tagging the same
+          # commit (multiple tags at HEAD) can't make it pick the wrong one.
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ needs.meta.outputs.version }}
         run: |
           python -m pip install --upgrade pip build
           python -m build

@@ -18,3 +18,4 @@ venv/
 Thumbs.db
 .idea/
 .vscode/
+.claude/
