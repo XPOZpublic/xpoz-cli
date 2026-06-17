@@ -89,6 +89,25 @@ xpoz-cli auth status
 xpoz-cli auth logout
 ```
 
+### Try it without signing up
+
+Want to kick the tires first? Use the public trial token below — no sign-in required. It returns a limited set of results so you can see the CLI in action:
+
+```bash
+export XPOZ_API_KEY=K3FG1WG8Hzxd5aAXG1fIpcb1KjArTNQMmh1vFpjd4g8ER6ecrSRkRs3LqlnMaNTZoy7MFT9
+
+xpoz-cli twitter get_user --identifier elonmusk
+```
+
+Or pass it inline with `--api-key`:
+
+```bash
+xpoz-cli twitter get_user --identifier elonmusk \
+    --api-key K3FG1WG8Hzxd5aAXG1fIpcb1KjArTNQMmh1vFpjd4g8ER6ecrSRkRs3LqlnMaNTZoy7MFT9
+```
+
+For full results, [grab your own API key](https://www.xpoz.ai/settings) and run `xpoz-cli auth login`.
+
 Then call any SDK method on any platform:
 
 ```bash
