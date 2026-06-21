@@ -91,10 +91,14 @@ xpoz-cli auth logout
 
 ### Try it without signing up
 
-Want to kick the tires first? Use the public trial token below — no sign-in required. It returns a limited set of results so you can see the CLI in action:
+Want to kick the tires first? Mint a free trial token — no sign-in required, valid for 5 days. It returns a limited set of results so you can see the CLI in action:
 
 ```bash
-export XPOZ_API_KEY=K3FG1WG8Hzxd5aAXG1fIpcb1KjArTNQMmh1vFpjd4g8ER6ecrSRkRs3LqlnMaNTZoy7MFT9
+# Get a trial token (starts with "TRIAL")
+curl -X POST https://api.xpoz.ai/api/trial/token
+# -> { "success": true, "data": { "accessKey": "TRIAL...", "expiresInSeconds": 432000 }, ... }
+
+export XPOZ_API_KEY=TRIAL...   # the token from the response above
 
 xpoz-cli twitter get_user --identifier elonmusk
 ```
@@ -103,7 +107,7 @@ Or pass it inline with `--api-key`:
 
 ```bash
 xpoz-cli twitter get_user --identifier elonmusk \
-    --api-key K3FG1WG8Hzxd5aAXG1fIpcb1KjArTNQMmh1vFpjd4g8ER6ecrSRkRs3LqlnMaNTZoy7MFT9
+    --api-key TRIAL...
 ```
 
 For full results, [grab your own API key](https://www.xpoz.ai/settings) and run `xpoz-cli auth login`.
