@@ -95,13 +95,17 @@ Want to kick the tires first? Mint a free trial token — no sign-in required, v
 
 ```bash
 # Get a trial token (starts with "TRIAL")
-curl -X POST https://api.xpoz.ai/api/trial/token
+curl -X POST https://api.xpoz.ai/api/trial/token \
+  -H "Content-Type: application/json" \
+  -d '{"source": "cli"}'
 # -> { "success": true, "data": { "accessKey": "TRIAL...", "expiresInSeconds": 432000 }, ... }
 
 export XPOZ_API_KEY=TRIAL...   # the token from the response above
 
 xpoz-cli twitter get_user --identifier elonmusk
 ```
+
+The `source` field is required — it just tells us where the trial request came from (e.g. `skills`, a specific page, `sdk`, `cli`).
 
 Or pass it inline with `--api-key`:
 
